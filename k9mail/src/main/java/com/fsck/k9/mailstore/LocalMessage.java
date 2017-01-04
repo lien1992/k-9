@@ -2,6 +2,8 @@ package com.fsck.k9.mailstore;
 
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.Date;
 
 import android.content.ContentValues;
@@ -40,6 +42,7 @@ public class LocalMessage extends MimeMessage {
     private long messagePartId;
     private String mimeType;
     private PreviewType previewType;
+    private boolean dirty = false;
 
 
     private LocalMessage(LocalStore localStore) {
@@ -128,10 +131,12 @@ public class LocalMessage extends MimeMessage {
         } else {
             Log.d(K9.LOG_TAG, "No headers available for this message!");
         }
+        
+        dirty = false;
     }
 
     @VisibleForTesting
-    public void setMessagePartId(long messagePartId) {
+    void setMessagePartId(long messagePartId) {
         this.messagePartId = messagePartId;
     }
 
@@ -165,12 +170,14 @@ public class LocalMessage extends MimeMessage {
     @Override
     public void setSubject(String subject) {
         mSubject = subject;
+        dirty = true;
     }
 
 
     @Override
     public void setMessageId(String messageId) {
         mMessageId = messageId;
+        dirty = true;
     }
 
     @Override
@@ -191,6 +198,7 @@ public class LocalMessage extends MimeMessage {
     @Override
     public void setFrom(Address from) {
         this.mFrom = new Address[] { from };
+        dirty = true;
     }
 
 
@@ -201,6 +209,8 @@ public class LocalMessage extends MimeMessage {
         } else {
             mReplyTo = replyTo;
         }
+
+        dirty = true;
     }
 
 
@@ -231,6 +241,8 @@ public class LocalMessage extends MimeMessage {
         } else {
             throw new IllegalArgumentException("Unrecognized recipient type.");
         }
+
+        dirty = true;
     }
 
     public void setFlagInternal(Flag flag, boolean set) throws MessagingException {
@@ -517,6 +529,7 @@ public class LocalMessage extends MimeMessage {
         message.messagePartId = messagePartId;
         message.mimeType = mimeType;
         message.previewType = previewType;
+        message.dirty = dirty;
 
         return message;
     }
@@ -547,6 +560,33 @@ public class LocalMessage extends MimeMessage {
 
     public String getUri() {
         return "email://messages/" +  getAccount().getAccountNumber() + "/" + getFolder().getName() + "/" + getUid();
+    }
+
+    @Override
+    public void writeTo(OutputStream out) throws IOException, MessagingException {
+        if (dirty) {
+            updateHeader();
+        }
+        
+        super.writeTo(out);
+    }
+
+    private void updateHeader() {
+        super.setSubject(mSubject);
+        super.setReplyTo(mReplyTo);
+        super.setRecipients(RecipientType.TO, mTo);
+        super.setRecipients(RecipientType.CC, mCc);
+        super.setRecipients(RecipientType.BCC, mBcc);
+
+        if (mFrom != null && mFrom.length > 0) {
+            super.setFrom(mFrom[0]);
+        }
+
+        if (mMessageId != null) {
+            super.setMessageId(mMessageId);
+        }
+        
+        dirty = false;
     }
 
     @Override
